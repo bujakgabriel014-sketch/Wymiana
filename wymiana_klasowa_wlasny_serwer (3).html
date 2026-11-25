@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wymiana klasowa</title>
+<style>
+:root{--bg:#f6f5f1;--card:#fff;--tx:#1c1c1a;--mu:#6b6a64;--ac:#1f7a5a;--acx:#fff;--bd:#e2e0d8;--sw:#b4561c;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161614;--card:#222220;--tx:#f0efe9;--mu:#9d9c94;--ac:#3fb98b;--acx:#0d1f18;--bd:#363632;--sw:#e8914f}}
+:root[data-theme="dark"]{--bg:#161614;--card:#222220;--tx:#f0efe9;--mu:#9d9c94;--ac:#3fb98b;--acx:#0d1f18;--bd:#363632;--sw:#e8914f}
+*{box-sizing:border-box}html,body{margin:0}
+body{background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif}
+header{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--bd);position:sticky;top:env(safe-area-inset-top,0px);background:var(--bg);z-index:5}
+h1{font-size:20px;margin:0}main{max-width:900px;margin:0 auto;padding:18px}
+button,input,select,textarea{font:inherit;color:inherit}
+.btn{background:var(--ac);color:var(--acx);border:0;border-radius:10px;padding:10px 16px;cursor:pointer;font-weight:600}
+.btn.g{background:transparent;color:var(--tx);border:1px solid var(--bd)}
+input,select,textarea{width:100%;background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:10px;margin:4px 0 12px}
+label{font-size:14px;color:var(--mu)}
+.box{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:20px;max-width:380px;margin:8vh auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;overflow:hidden}
+.card img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block}
+.card div{padding:12px}
+.tag{display:inline-block;font-size:12px;font-weight:700;padding:2px 8px;border-radius:99px;background:var(--ac);color:var(--acx)}
+.tag.w{background:var(--sw);color:#fff}
+.mu{color:var(--mu);font-size:14px}.bar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.chip{padding:6px 14px;border-radius:99px;border:1px solid var(--bd);background:var(--card);cursor:pointer}
+.chip.on{background:var(--ac);color:var(--acx);border-color:var(--ac)}
+#prev{max-width:100%;border-radius:10px;display:none;margin-bottom:12px}
+.loc{font-size:14px;color:var(--mu)}.loc a{color:var(--ac)}.err{color:#c0392b;font-size:14px;min-height:20px}
+</style>
+</head>
+<body>
+<div id="app"><main><p class="mu">Ładowanie…</p></main></div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+/* ===== USTAWIENIA: wklej tu dane z Firebase (instrukcja w wiadomości) ===== */
+const firebaseConfig={apiKey:"WKLEJ",authDomain:"WKLEJ",projectId:"WKLEJ",appId:"WKLEJ"};
+const KOD_KLASY="Kl6GG"; /* kod, który podajesz kolegom przy zakładaniu konta */
+/* ========================================================================= */
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let auth,db,me=null,items=[],filter='all',photo='',view='home',unsub=null;
+function start(){
+ if(location.protocol==='file:'){$('#app').innerHTML='<div class="box"><h1>Wymiana klasowa</h1><p class="err">Ten plik nie działa otwarty z dysku (adres zaczyna się od C:/). Wgraj go na hosting, np. netlify.com/drop, i otwórz przez link https://.</p></div>';return}
+ if(Object.values(firebaseConfig).some(v=>v==='WKLEJ')){$('#app').innerHTML='<div class="box"><h1>Wymiana klasowa</h1><p class="err">Brakuje ustawień Firebase. Otwórz plik w Notatniku i wklej swoje dane w miejsce słów WKLEJ (na początku pliku), potem wgraj plik ponownie.</p></div>';return}
+ try{firebase.initializeApp(firebaseConfig);auth=firebase.auth();db=firebase.firestore()}
+ catch(e){$('#app').innerHTML='<div class="box"><p class="err">Brak ustawień Firebase. Wklej je na początku pliku.</p></div>';return}
+ auth.onAuthStateChanged(u=>{me=u;if(unsub){unsub();unsub=null}
+  if(!u){login();return}
+  unsub=db.collection('items').orderBy('ts','desc').limit(200).onSnapshot(s=>{items=s.docs.map(d=>({id:d.id,...d.data()}));if(view==='home')home()},
+   e=>{$('#app').innerHTML='<main><p class="err">Błąd wczytywania: '+esc(e.code)+'</p></main>'})});
+}
+function login(){
+ $('#app').innerHTML=`<div class="box"><h1>Wymiana klasowa</h1><p class="mu">Zrób zdjęcie, wystaw rzecz, wymień lub sprzedaj.</p>
+ <label>Login (np. imię)</label><input id="u" autocomplete="username">
+ <label>Hasło (min. 6 znaków)</label><input id="p" type="password" autocomplete="current-password">
+ <div id="kw" style="display:none"><label>Kod klasy (od właściciela)</label><input id="k"></div>
+ <div class="err" id="e"></div>
+ <div class="bar"><button class="btn" id="in">Zaloguj</button><button class="btn g" id="up">Załóż konto</button></div></div>`;
+ const em=u=>u.toLowerCase().replace(/[^a-z0-9]/g,'')+'@klasa.app';
+ $('#in').onclick=async()=>{try{await auth.signInWithEmailAndPassword(em($('#u').value),$('#p').value)}catch(e){$('#e').textContent='Błędny login lub hasło ('+(e.code||e.message)+').'}};
+ $('#up').onclick=async()=>{
+  if($('#kw').style.display==='none'){$('#kw').style.display='block';$('#e').textContent='Wpisz kod klasy i kliknij „Załóż konto” jeszcze raz.';return}
+  const u=$('#u').value.trim();
+  if(u.replace(/[^a-zA-Z0-9]/g,'').length<2)return $('#e').textContent='Login: min. 2 litery lub cyfry (bez polskich znaków).';
+  if($('#k').value.trim()!==KOD_KLASY)return $('#e').textContent='Zły kod klasy.';
+  try{const c=await auth.createUserWithEmailAndPassword(em(u),$('#p').value);await c.user.updateProfile({displayName:u})}
+  catch(e){$('#e').textContent=e.code==='auth/email-already-in-use'?'Taki login już istnieje.':e.code==='auth/weak-password'?'Hasło za krótkie (min. 6).':'Nie udało się założyć konta ('+(e.code||e.message)+').'}};
+}
+function home(){
+ const list=items.filter(i=>filter==='all'||i.type===filter);
+ $('#app').innerHTML=`<header><h1>Wymiana klasowa</h1><div><span class="mu">${esc(me.displayName||'')}</span> <button class="btn g" id="out">Wyloguj</button></div></header>
+ <main><div class="bar"><button class="btn" id="add">+ Dodaj rzecz</button>${[['all','Wszystko'],['swap','Wymiana'],['sell','Sprzedaż']].map(([k,t])=>`<span class="chip ${filter===k?'on':''}" data-f="${k}">${t}</span>`).join('')}</div>
+ ${list.length?`<div class="grid">${list.map(card).join('')}</div>`:'<p class="mu">Brak ogłoszeń. Dodaj pierwsze zdjęciem rzeczy!</p>'}</main>`;
+ $('#out').onclick=()=>auth.signOut();$('#add').onclick=form;
+ document.querySelectorAll('[data-f]').forEach(c=>c.onclick=()=>{filter=c.dataset.f;home()});
+ document.querySelectorAll('[data-d]').forEach(b=>b.onclick=async()=>{if(confirm('Usunąć ogłoszenie?'))try{await db.collection('items').doc(b.dataset.d).delete()}catch(e){alert('Nie można usunąć.')}});
+}
+function card(i){
+ const img=String(i.img||'').startsWith('data:image/')?i.img:'';
+ const where=[i.place,i.city].filter(Boolean).join(' · ');
+ const map=where?`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(where)}`:'';
+ return `<div class="card"><img src="${img}" alt=""><div>
+ <span class="tag ${i.type==='swap'?'w':''}">${i.type==='swap'?'WYMIANA':'SPRZEDAŻ'}</span>
+ <h3 style="margin:6px 0 2px">${esc(i.title)}</h3>
+ <div><b>${i.type==='swap'?'Chcę w zamian: '+esc(i.want):esc(i.price)+' zł'}</b></div>
+ ${i.desc?`<div class="mu">${esc(i.desc)}</div>`:''}
+ ${i.place?`<div class="loc">📍 Wymiana: ${esc(i.place)}</div>`:''}
+ ${i.city?`<div class="loc">🏠 Mieszka w: ${esc(i.city)}</div>`:''}
+ ${map?`<div class="loc"><a href="${map}" target="_blank" rel="noopener">Pokaż na mapie</a></div>`:''}
+ <div class="mu">${esc(i.ownerName||'')} · ${esc(i.date||'')}</div>
+ ${i.owner===me.uid?`<button class="btn g" style="margin-top:8px" data-d="${esc(i.id)}">Usuń</button>`:''}</div></div>`}
+function form(){
+ view='form';photo='';
+ $('#app').innerHTML=`<header><h1>Nowa rzecz</h1><button class="btn g" id="bk">Wróć</button></header><main style="max-width:460px">
+ <label>Zdjęcie (aparat lub galeria)</label><input id="f" type="file" accept="image/*" capture="environment"><img id="prev" alt="">
+ <label>Nazwa rzeczy</label><input id="t">
+ <label>Co chcesz zrobić?</label><select id="ty"><option value="swap">Wymienić</option><option value="sell">Sprzedać</option></select>
+ <div id="x"></div>
+ <label>Gdzie można się wymienić? (np. szkoła, przed salą 12)</label><input id="pl">
+ <label>Gdzie mieszkasz? (tylko miejscowość lub osiedle, bez adresu)</label><input id="ci">
+ <label>Opis (stan, rozmiar…)</label><textarea id="d" rows="3"></textarea>
+ <div class="err" id="e"></div><button class="btn" id="sv">Opublikuj</button></main>`;
+ const fx=()=>{$('#x').innerHTML=$('#ty').value==='swap'?'<label>Co chcesz w zamian?</label><input id="w">':'<label>Za ile odsprzedasz? (zł)</label><input id="pr" type="number" min="0" inputmode="decimal">'};
+ fx();$('#ty').onchange=fx;$('#bk').onclick=()=>{view='home';home()};
+ $('#f').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{const im=new Image();im.onload=()=>{const s=Math.min(1,640/Math.max(im.width,im.height)),c=document.createElement('canvas');
+   c.width=im.width*s;c.height=im.height*s;c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+   photo=c.toDataURL('image/jpeg',.6);const p=$('#prev');p.src=photo;p.style.display='block'};im.src=r.result};r.readAsDataURL(f)};
+ $('#sv').onclick=async()=>{const t=$('#t').value.trim(),ty=$('#ty').value,w=$('#w')?.value.trim(),pr=$('#pr')?.value;
+  if(!photo)return $('#e').textContent='Dodaj zdjęcie.';
+  if(!t)return $('#e').textContent='Podaj nazwę.';
+  if(ty==='swap'&&!w)return $('#e').textContent='Napisz, co chcesz w zamian.';
+  if(ty==='sell'&&!pr)return $('#e').textContent='Podaj cenę.';
+  $('#sv').disabled=true;
+  try{await db.collection('items').add({owner:me.uid,ownerName:me.displayName||'',img:photo,title:t,type:ty,want:w||'',price:pr||'',desc:$('#d').value.trim(),
+   place:$('#pl').value.trim(),city:$('#ci').value.trim(),ts:Date.now(),date:new Date().toLocaleDateString('pl-PL')});view='home';home()}
+  catch(e){$('#sv').disabled=false;$('#e').textContent='Nie udało się zapisać ('+(e.code||'błąd')+').'}};
+}
+start();
+</script>
+<script>window.TUT_LOGIN=true</script>
+<style>
+#tb{position:fixed;right:14px;bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:20;background:var(--ac);color:var(--acx);border:0;border-radius:99px;padding:10px 16px;font-weight:700;cursor:pointer;box-shadow:0 2px 10px #0004}
+#tv{position:fixed;inset:0;background:#000a;z-index:30;display:none;align-items:center;justify-content:center;padding:16px}
+#tv .w{background:var(--card);border:1px solid var(--bd);border-radius:16px;width:100%;max-width:400px;padding:18px}
+#tv h2{margin:0 0 4px;font-size:18px}#tv .st{min-height:230px;margin:10px 0}
+.mi{background:var(--bg);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;margin:6px 0;min-height:38px;font-size:15px}
+.mi small{display:block;color:var(--mu);font-size:11px}
+.mb{display:inline-block;background:var(--ac);color:var(--acx);border-radius:8px;padding:8px 14px;font-weight:700;margin:6px 0}
+.pu{animation:pu 1s infinite}@keyframes pu{50%{transform:scale(1.12);box-shadow:0 0 0 6px #3fb98b44}}
+.pop{animation:po .6s both}@keyframes po{from{transform:scale(.3);opacity:0}to{transform:scale(1);opacity:1}}
+.up{animation:upa .8s both}@keyframes upa{from{transform:translateY(40px);opacity:0}to{transform:none;opacity:1}}
+.cur{display:inline-block;animation:bl .7s infinite}@keyframes bl{50%{opacity:0}}
+#tv .dots{display:flex;gap:6px;justify-content:center;margin:6px 0}
+#tv .dots i{width:8px;height:8px;border-radius:50%;background:var(--bd)}#tv .dots i.on{background:var(--ac)}
+#tv .row{display:flex;gap:8px;justify-content:space-between}
+</style>
+<button id="tb" type="button">❓ Jak to działa?</button>
+<div id="tv"><div class="w"><h2 id="tt"></h2><div class="st" id="ts"></div><div class="dots" id="td"></div>
+<div class="row"><button class="btn g" id="tx" type="button">Zamknij</button><button class="btn" id="tn" type="button">Dalej</button></div></div></div>
+<script>
+(function(){
+const LOGIN=window.TUT_LOGIN!==false;
+const steps=[
+ {t:LOGIN?'1. Zaloguj się':'1. Zaloguj się',h:()=>LOGIN
+  ?'<div class="mi"><small>Login</small><span data-t="Kasia"></span></div><div class="mi"><small>Hasło</small><span data-t="••••••"></span></div><div class="mi"><small>Kod klasy</small><span data-t="Kl6GG"></span></div><div class="mb pu">Załóż konto</div><div class="mu">Następnym razem wystarczy „Zaloguj”.</div>'
+  :'<div class="mi pop">Otwórz link od właściciela portalu.</div><div class="mi pop" style="animation-delay:.5s">Zaloguj się kontem Claude (to samo na telefonie i komputerze).</div><div class="mb pu">Wchodzę</div>'},
+ {t:'2. Kliknij „Dodaj rzecz”',h:()=>'<div class="mi">Wymiana klasowa</div><div class="mb pu">+ Dodaj rzecz</div><div class="mu">Na górze strony głównej. Poniżej widzisz rzeczy kolegów.</div>'},
+ {t:'3. Zdjęcie i dane',h:()=>'<div class="mi pop" style="text-align:center;font-size:30px">📷<small>Zrób zdjęcie rzeczy</small></div><div class="mi"><small>Nazwa</small><span data-t="Rower dziecięcy"></span></div><div><span class="mb">Wymienić</span> <span class="mu">lub Sprzedać</span></div><div class="mi"><small>Chcę w zamian</small><span data-t="Deskorolka"></span></div>'},
+ {t:'4. Opublikuj',h:()=>'<div class="mb pu">Opublikuj</div><div class="card up" style="max-width:240px;margin-top:8px"><div style="padding:10px"><span class="tag w">WYMIANA</span><h3 style="margin:6px 0 2px">Rower dziecięcy</h3><b>Chcę w zamian: Deskorolka</b><div class="mu">📍 szkoła, sala 12</div></div></div><div class="mu" style="margin-top:6px">Gotowe! Ogłoszenie widzi cała klasa.</div>'}
+];
+let i=0,timer=null,tm=null;
+const $=s=>document.getElementById(s);
+function typeAll(){clearInterval(tm);const els=[...document.querySelectorAll('#ts [data-t]')];let k=0;
+ els.forEach(e=>e.textContent='');
+ const run=()=>{if(k>=els.length)return;const e=els[k],tx=e.dataset.t;let n=0;
+  tm=setInterval(()=>{n++;e.innerHTML=esc2(tx.slice(0,n))+'<span class="cur">|</span>';
+   if(n>=tx.length){clearInterval(tm);e.textContent=tx;k++;setTimeout(run,250)}},90)};run()}
+function esc2(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+function show(n){i=(n+steps.length)%steps.length;$('tt').textContent='Jak wystawić rzecz na wymianę';
+ $('ts').innerHTML='<b>'+steps[i].t+'</b>'+steps[i].h();
+ $('td').innerHTML=steps.map((_,j)=>'<i class="'+(j===i?'on':'')+'"></i>').join('');
+ $('tn').textContent=i===steps.length-1?'Od nowa':'Dalej';typeAll();
+ clearTimeout(timer);timer=setTimeout(()=>show(i+1),5500)}
+function open(){$('tv').style.display='flex';show(0)}
+function close(){$('tv').style.display='none';clearTimeout(timer);clearInterval(tm)}
+$('tb').onclick=open;$('tx').onclick=close;$('tn').onclick=()=>show(i+1);
+$('tv').onclick=e=>{if(e.target.id==='tv')close()};
+try{if(!localStorage.getItem('tut_seen')){localStorage.setItem('tut_seen','1');setTimeout(open,600)}}catch(e){}
+})();
+</script>
+</body>
+</html>
